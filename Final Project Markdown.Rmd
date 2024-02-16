@@ -1,0 +1,249 @@
+---
+title: "Final Project"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+date: "2024-02-12"
+---
+
+```{r library}
+library("readr")
+data <- read_csv("restaurant.csv",show_col_types = FALSE)
+```
+
+## Final Project
+
+This final project involves finding a multiple linear regression model to help us predict the profit a restaurant can expect given several variables. Our quantitative prediction variables are as follows: 
+Cov - number of covers or customers served (thousands)
+Fco - food costs (thousands of dollars)
+Oco - overhead costs (thousands of dollars)
+Lco - labor costs (thousands of dollars)
+
+We also have three (two in the dataset) qualitative predictor variables extracted from the region variable. 
+DSw - southwest region
+DNw - northwest region
+If both of these two qualitative variables are at 0, our third region is involved, Mountain region. 
+
+Before we begin our analysis, we will can view the data and build a model using simply our predictor variables as they are, without any interactions or transformations, and then summarize the model. Once we have done this, we can look at studentized values, leverages, and cooks distance to discover any outliers or any records that have excessive influence on the other records. 
+
+```{r data}
+View(data)
+model1 <- lm(Profit ~ Cov + Fco + Oco + Lco + DSw + DNw,data=data)
+summary(model1)
+```
+## Deal with Outliers
+
+We see our simple model has an R-squared value of 0.9078, which means our simple model already accomplishes an explanation of nearly 91% of the variance in the data. However, the goal is to find a model with approximately 94% R-squared value and a regression standard error or 10. We will most likely have to do this by looking at interactions and transformations of the predictor variables. But before we do this, we need to confirm any outliers or excessive influence records. 
+
+```{r student}
+student <- rstudent(model1)
+plot(data$Restaurant,student,main = "Studentized")
+```
+
+A good rule of thumb for studentized values is that any record greater than 3 or less than -3 is likely an outlier. But let's confirm with both leverage and Cook's distance. 
+
+```{r leverage}
+leverage <- hatvalues(model1)
+plot(data$Restaurant,leverage,main = "Leverage")
+```
+```{r cook}
+cook <- cooks.distance(model1)
+plot(data$Restaurant,cook,main = "Cook's Distance")
+```
+
+Our leverage values all fall below the high leverage threshold of 0.17- derived from the formula 3(K + 1) / N, where K is the number of predictor variables and N is the number of samples, in this case K = 6 and N = 120. However, there is one Cook distance that is greater than 0.1, which is an indicator that one of our records has excessive influence. There is also one other variable that may have undue influence at the right side of the chart. We will first locate and remove the excessive influence record, check the summary statistics, and then do the same with the other record, and if both records have excessive influence on the variables, we will remove them both, otherwise we will remove one or neither record. 
+
+```{r outliers}
+influencer <- which(cook > 0.1)
+datax <- data[-influencer,]
+model <- lm(Profit ~ Cov + Fco + Oco + Lco + DSw + DNw,data=datax)
+summary(model)
+```
+
+We see an increased R-squared value from our previous model with the removal of this element from 0.9078 to 0.9159. Let's check the other Cook distances. 
+
+```{r outliers1}
+cook <- cooks.distance(model)
+influencers <- which(cook > 0.05)
+influencers
+dataxx <- datax[-influencers,]
+model <- lm(Profit ~ Cov + Fco + Oco + Lco + DSw + DNw,data=dataxx)
+summary(model)
+```
+
+We do not see any drastic increase in our R-squared values removing these other Cook distance values greater than 0.05, so we can set our data variable back to the data minus our excessive influence record. 
+
+```{r outliers2}
+data <- datax
+View(data)
+```
+
+## Find a good model
+
+Now that we have dealt with our outlier, we can begin to experiment with models, striving to find a model that meets our criteria from earlier, R-squared value approximately 0.94 and a regression standard error of approximately 10. One item to check before diving into a brute force modelling track is to look for normality. We saw that our residual assumptions of zero-mean, consistent variance, and independence seemed to hold when we viewed the studentized values before, but we will check on the normality as well before proceeding. 
+
+```{r normality}
+model1 <- lm(Profit ~ Cov + Fco + Oco + Lco + DSw + DNw,data=data)
+student <- rstudent(model1)
+hist(student)
+```
+
+From the histogram, our assumption of normality also seems to hold true. Since this is the case, we can also do a scatterplot matrix of the quantitative variables in our data to look for patterns that could help us identify the types of interactions and transformations we might have to perform. 
+
+```{r scatterplot matrix}
+pairs(cbind(data$Profit,data$Cov,data$Fco,data$Oco,data$Lco),main="Scatterplot matrix of quantitative variables",labels = cbind("Profit","cov","fco","oco","lco"))
+```
+
+We notice a relatively strong linear relationship between profit and cov. There is not quite as strong a relationship between profit and oco and lco, however, which means we might need to perform some transformations on these variables later. 
+
+To help with identifying interactions of value, we will utilize a brute force approach of trying all 2 predictor interactions between the variables. 
+
+```{r brute force}
+model2 <- lm(Profit ~ Cov + Fco + Oco + Lco + DSw + DNw + DSw:Cov + DSw:Fco + DSw:Oco + DSw:Lco + DNw:Cov + DNw:Fco + DNw:Oco + DNw:Lco,data=data)
+summary(model2)
+```
+
+We see that utilizing all of the interactions between the variables gives us another great increase in predictive accuracy, from 0.9174 to 0.9314. We assume that the brute force method will give us some unhelpful relationships though, and so we can conduct a hypothesis test to determine usefulness of some of the interactions. 
+
+Looking at the p-values for the model, we notice that the interactions Fco:DNw, Oco:DNw, and Lco:DNw are all rather high, which means they might not be useful for our model. A quick hypothesis test should tell us how useful they are:
+Null hypothesis: Fco:DNw = Oco:DNw = Lco:DNw = 0
+Alternative hypothesis:Fco:DNw = Oco:DNw = Lco:DNw != 0
+Significance level: 5%
+P-values: 0.4434,0.4553,0.3781
+Decision: Since all of these p-values are greater than our significance level of 5%, we cannot reject the null hypothesis. 
+
+This means we can say with 95% confidence that these three interactions do not contribute useful information to our model, so we will remove them. 
+
+```{r brute force1}
+model3 <- lm(formula = Profit ~ Cov + Fco + Oco + Lco + DSw + DNw + DSw:Cov + 
+    DSw:Fco + DSw:Oco + DSw:Lco + DNw:Cov, data = data)
+summary(model3)
+```
+
+While this has negatively impacted our R-squared value, it actually increased the adjusted R-squared value by a very small amount, which means it does help our model avoid overfitting. Looking at the p-values again, we see that the p-values for Cov:DSw and Fco:DSw are quite high, so we will conduct one more hypothesis test on those results as well. 
+
+Null hypothesis: Cov:DSw = Fco:DSw = 0
+Alternative hypothesis: Cov:DSw = Fco:DSw != 0
+Significance level: 5%
+P-values: 0.8786 and 0.6446
+Decision: Because both p-values are greater than the significance level of 5%, we can, with a 95% confidence, say they do not contribute anything useful to the model and can, therefore, be removed. 
+
+```{r brute force2}
+model4 <- lm(formula = Profit ~ Cov + Fco + Oco + Lco + DSw + DNw + DSw:Oco + DSw:Lco + DNw:Cov, data = data)
+summary(model4)
+```
+
+This increases adjusted R-squared even more, which means our model overfits the data even less, with only a small sacrifice in R-squared and our model is simpler and easier to understand. With the current model, we see that DSw and DNw both have high p-values, but instead of doing a hypothesis test to confirm, we will simply leave them in the model to preserve hierarchy, as removing these variables would necessarily mean the removal of the interactions, which would decrease the accuracy of our model. 
+
+Returning to our scatterplot matrix, we noticed that we might need to perform a transformation on the variables Oco and Lco. We can attempt to add these transformations to our current working model and observe the affects on R-squared. We will first try a logarithmic transformation. 
+
+```{r transformations}
+model5 <- lm(formula = Profit ~ Cov + Fco + Oco + Lco + DSw + DNw + DSw:Oco + DSw:Lco + DNw:Cov + log(Oco) + log(Lco), data = data)
+summary(model5)
+```
+
+The logarithmic transformation has placed our metrics very nearly where we need them, but we want to observe other transformations as well to confirm whether this is our model of choice. We will next try a quadratic transformation on these two variables. 
+
+```{r transformations1}
+model6 <- lm(formula = Profit ~ Cov + Fco + Oco + Lco + DSw + DNw + DSw:Oco + DSw:Lco + DNw:Cov + Oco^2 + Lco^2, data = data)
+summary(model6)
+```
+
+The quadratic transformation contributes no new information to our model, so we will next try a reciprocal transformation. 
+
+```{r transformations2}
+model7 <- lm(formula = Profit ~ Cov + Fco + Oco + Lco + DSw + DNw + DSw:Oco + DSw:Lco + DNw:Cov + (1/Oco) + (1/Lco), data = data)
+summary(model7)
+```
+
+This also contributes no new information to the model. 
+
+In conclusion, we will utilize our logarithmically transformed model as the best model to precit restaurant profits based on the predictor variable, so we can fit the model5 to the object model. 
+
+```{r model}
+model <- model5
+summary(model)
+```
+
+With this model,we have achieved an R-squared value of approximately 0.94 (0.9362) and a residual standard error of approximately 10 (10.04). This means our final regression model is as follows:
+
+Profit = 475.31+26.52Cov-0.96Fco+0.36Oco+0.21Lco+1.21DSw-14.66DNw-0.54Oco:DSw+0.56Lco:DSw-2.82Cov:DNw-58.83log(Oco)-95.96log(Lco)
+
+For the sake of viewing the results of our model, we will run a few predictor effect plots in order to visualize the effects of a few predictors. To do this, we will create a function for viewing our predictor effects. In the function, we will set the different predictor variables equal to their average and measure unit increase. 
+
+```{r predictor effect function}
+library("dplyr")
+predictorEffect <- function(column,reg){
+  lowest <- min(data%>%select_if(colnames(data)==column))
+  highest <- max(data%>%select_if(colnames(data)==column))
+  m_cov <- mean(datax$Cov) 
+  m_fco <- mean(datax$Fco)
+  m_oco <- mean(datax$Oco)
+  m_lco <- mean(datax$Lco)
+  DSW <- 1
+  DNW <- 1
+  if (reg == "DSW"){
+    DSW <- 1
+  }else if (reg == "DNW"){
+    DNW <- 1
+  }else{
+    reg = "MTN"
+    DSW <- 0
+    DNW <- 0
+  }
+  lst <- seq.int(lowest,highest,(highest - lowest)/20)
+  line <- c()
+  for (i in lst){
+    m_cov <- m_cov + i
+    value <- 475.31 + 26.52*(m_cov)-0.96*(m_fco)+0.36*(m_oco)+0.21*(m_lco)-14.66*(DNW)+1.21*(DSW)-0.54*((m_oco)*DSW)+0.56*((m_lco)*(DSW))-2.82*((m_cov)*(DNW))-58.83*log(m_oco)-95.96*log(m_lco)
+    line = append(line,value)
+  }
+  plot(line,type="o",xlab = "Units added",ylab = "Profit added",main = paste(data%>%select(column)%>%colnames(),reg,sep=" and "),las=1)
+}
+```
+
+## Predictor Effects
+
+Now that we have a function to perform our predictor effect plots, we can run a few scenarios to have a better understanding of the relationships between the variables. In our function, we have to include the effect of the different regions as this is an unavoidable part of the model. 
+We can plot a relationship between the number of customers added in the mountain region to profit below. 
+
+```{r predictor effect}
+predictorEffect("Cov","")
+```
+
+We can see that as each customer is added, there is a nearly linear progression upwards. However, we can also see that the growth in profit is exponential once 5 more customer units have been added. 
+
+Let's plot the relationship between customer growth in the Southwestern region and profit. 
+
+```{r predictor effect1}
+predictorEffect("Cov","DSW")
+```
+
+We see very nearly the same plot as before. Nearly linear with some exponential growth after 5 units added. 
+
+What about adding labor in the South West?
+
+```{r predictor effect2}
+predictorEffect("Lco","DSW")
+
+```
+
+Again, we see a linear relationship with a slight exponential increase over units added; however, the difference here is that the profit added by labor increase is substantial keeping all else equal. 
+
+How about overhead costs? 
+
+```{r predictor effect3}
+predictorEffect("Oco","")
+```
+
+An increase in overhead costs also leads to higher profits, but not quite as much as increasing labor costs. 
+
+And finally, what about the increase of food costs? 
+
+```{r predictor effect4}
+predictorEffect("Fco","DSW")
+```
+
+In conclusion, keeping all other inputs stable, we notice a trend of increasing profit as we add units to the predictor variable of choice. 
